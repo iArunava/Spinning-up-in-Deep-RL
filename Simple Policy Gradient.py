@@ -1,219 +1,208 @@
-
-# coding: utf-8
-
-# # Simple Policy Gradient
-# 
-# This notebook contains the implementation of the Simple Policy Gradient Algorithm using TensorFlow.
-# <br/>
-# This notebook is created while going through the official Spinning up in Deep RL Docs.
-
-# In[1]:
-
-
-# Required modules
-'''
-get_ipython().system('pip install gym')
-get_ipython().system('apt-get install python-opengl')
-'''
-
-
-# In[1]:
-
-
 # Import required modules
 import numpy as np
 import tensorflow as tf
 import gym
-from gym.spaces import Discrete, Box
 import matplotlib.pyplot as plt
-#get_ipython().run_line_magic('matplotlib', 'inline')
-#from IPython import display
+import argparse
+import os
 
+from tensorflow.python.framework import graph_util
+from tensorflow.python.platform import gfile
+from gym.spaces import Discrete, Box
+from tf_utils import *
 
-# In[2]:
+const E = 'ERROR'
+const I = 'INFO'
 
-
-# Arguments
-env_name = 'CartPole-v0'
-render = True
-
-
-# In[3]:
-
-
-# Create the env
-env = gym.make('CartPole-v0')
-
-
-# In[4]:
-
-
-# Get the action space size and observation space size
-act_size = env.action_space.n
-obs_size = env.observation_space.shape[0]
-
-print ('Action Space Size: {}'.format(act_size),
-       '\nObservation Space Size: {}'.format(obs_size))
-
-
-# In[5]:
-
-
-# Network Hyperparameters
-layers = 2
-hneurons = [32, act_size]
-epochs = 50
-batch_size = 5000
-lr = 1e-2
-hid_act = tf.tanh
-out_act = None
-
-
-# In[6]:
-
-
-# Build the network
-obs_ph = tf.placeholder(shape=(None, obs_size), dtype=tf.float32, name='input')
-
-a1 = tf.layers.dense(obs_ph, units=hneurons[0], activation=hid_act)
-logits = tf.layers.dense(a1, units=hneurons[1], activation=None)
-
-# Select the action
-actions = tf.squeeze(tf.multinomial(logits=logits, num_samples=1), axis=1)
-
-# Loss function whose gradient is the policy gradient
-weights_ph = tf.placeholder(shape=(None,), dtype=tf.float32)
-act_ph = tf.placeholder(shape=(None,), dtype=tf.int32)
-action_masks = tf.one_hot(act_ph, act_size)
-log_probs = tf.reduce_sum(action_masks * tf.nn.log_softmax(logits), axis=1)
-loss = -tf.reduce_mean(weights_ph * log_probs)
-
-# Make the train op
-train_op = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
-
-
-# In[7]:
-
-
-sess = tf.Session()
-sess.run(tf.global_variables_initializer())
-
-
-# In[8]:
-
-
-def show_state(env):
-    plt.figure(3)
-    plt.clf()
-    a = env.render(mode='rgb_array')
-    print (type(a))
-    print (a)
-    plt.imshow(env.render(mode='rgb_array'))
-    plt.axis('off')
-    
-    display.clear_output(wait=True)
-    display.display(plt.gcf())
-
-
-# In[11]:
-
-
-def train_one_epoch():
+def train_one_epoch(sess):
     # Declaring variables to store epoch details
     batch_acts = []
     batch_len = []
     batch_weights = []
     batch_rews = []
     batch_obs = []
-    
+
     # Reset env
     obs = env.reset()
     done = False
     ep_rews = []
     rendered_once_in_epoch = False
-    
+
     while True:
-        
-        '''
+
         if not rendered_once_in_epoch:
-            # For notebooks on server (like Colab)
-            #show_state(env)
-            # For notebooks on local machines
             env.render()
-            pass
-        '''
-        env.render()
 
         batch_obs.append(obs)
-        
+
         act = sess.run([actions], feed_dict={obs_ph: obs.reshape(1 ,-1)})[0][0]
-        
-        #print (act)
+
         # Take the action
         obs, rewards, done, info = env.step(act)
-        
+
         # save action, reward
         batch_acts.append(act)
         ep_rews.append(rewards)
-        
+
         if done:
             # Record info, as episode is complete
             ep_ret = sum(ep_rews)
             ep_len = len(ep_rews)
-            
+
             batch_rews.append(ep_ret)
             batch_len.append(ep_len)
-            
+
             batch_weights += [ep_ret] * ep_len
-            #print (batch_weights)
-            #print (ep_ret, ep_len)
-            #print ([ep_ret] * ep_len)
-            #input()
-            
+
             # Reset the environment
             obs, done, ep_rews = env.reset(), False, []
-            
+
             rendered_once_in_epoch = True
-            
+
             if batch_size < len(batch_obs):
                 break
-    
-    print(np.array(batch_weights).shape)
+
     batch_loss, _ = sess.run([loss, train_op], feed_dict={obs_ph: np.array(batch_obs),
                                                               act_ph: np.array(batch_acts),
                                                               weights_ph: np.array(batch_weights)})
-        
-        
+
     return batch_loss, batch_rews, batch_len
 
 
-# In[12]:
+# save the weights and graph
+if True:
+    print ('[INFO]Saving the graph and weights...')
+    save_graph(sess, tf.get_default_graph(), env_name + '_graph.pb')
+    print ('[INFO]Saved Successfully!!')
 
+if '__main__' == __name__:
+    parser = argparse.ArgumentParser()
 
-# Training loop
-for epoch in range(epochs):
-    batch_loss, batch_rets, batch_lens = train_one_epoch()
-    print ('Epoch: {:.3f} Loss: {:.3f} Return: {:.3f} ep_len: {:.3f}'
-           .format(epoch+1, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
+    parser.add_argument('-t', '--train',
+            type=bool,
+            default=False,
+            help='Set to true if you want to train the model. \
+                Default: False')
 
+    parser.add_argument('-g', '--graph',
+            type=str,
+            default='./graphs/CartPole-v0_graph.pb',
+            help='Path to the graph file')
 
-# In[ ]:
+    parser.add_argument('-il', '--input-layer',
+            type=str,
+            default='input',
+            help='The name of the input layer',)
 
+    parser.add_argument('-ol', '--output-layer',
+            type=str,
+            default='output',
+            help='The name of the output layer',)
 
-# TensorBoard Setup
-'''
-get_ipython().system('wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip')
-get_ipython().system('unzip ngrok-stable-linux-amd64.zip')
-get_ipython().system_raw('tensorboard --logdir=./tboard/FrozenLake-v0/ &')
-get_ipython().system_raw('./ngrok http 6006 &')
-get_ipython().system('curl -s http://localhost:4040/api/tunnels | python3 -c     "import sys, json; print(json.load(sys.stdin)[\'tunnels\'][0][\'public_url\'])"')
+    parser.add_argument('')
 
-# In[13]:
+    FLAGS, unparsed = parser.parse_known_args()
 
+    # Arguments
+    env_name = 'CartPole-v0'
+    render = True
 
-env.reset()
-for _ in range(1000):
-    env.step(env.action_space.sample())
-    env.render()
+    # Create the env
+    env = gym.make('CartPole-v0')
 
-'''
+    # Get the action space size and observation space size
+    act_size = env.action_space.n
+    obs_size = env.observation_space.shape[0]
+
+    print ('Action Space Size: {}'.format(act_size),
+           '\nObservation Space Size: {}'.format(obs_size))
+
+    if not FLAGS.train:
+        if not os.path.exists(FLAGS.graph):
+            raise Exception('{}Path to the Graph file does not exists!'\
+                    .format(E))
+
+        graph = load_graph(model_file)
+
+        # Test the network
+        input_layer = 'import/' + FLAGS.input_layer
+        output_layer = 'import/' + FLAGS.output_layer
+
+        input_op = graph.get_operation_by_name(input_layer)
+        output_op = graph.get_operation_by_name(output_layer)
+
+        with tf.Session(graph=graph) as sess:
+            init = tf.global_variables_initializer()
+            sess.run(init)
+
+            obs = env.reset()
+            done = False
+            ep_rews = 0
+
+            while not done:
+                act = sess.run([output_op.outputs[0]], feed_dict={input_op.outputs[0]: obs.reshape(1, -1)})
+
+                obs, rewards, done, info = env.step(act[0][0])
+
+                ep_rews += rewards
+
+            print ('Test Episode Rewards: {}'.format(ep_rews))
+
+    else:
+        # Network Hyperparameters
+        layers = 2
+        hneurons = [32, act_size]
+        epochs = 50
+        batch_size = 5000
+        lr = 1e-2
+        hid_act = tf.tanh
+        out_act = None
+
+        # Build the network
+        obs_ph = tf.placeholder(shape=(None, obs_size), dtype=tf.float32, name='input')
+
+        a1 = tf.layers.dense(obs_ph, units=hneurons[0], activation=hid_act)
+        logits = tf.layers.dense(a1, units=hneurons[1], activation=None)
+
+        # Select the action
+        actions = tf.squeeze(tf.multinomial(logits=logits, num_samples=1), axis=1, name='output')
+
+        # Loss function whose gradient is the policy gradient
+        weights_ph = tf.placeholder(shape=(None,), dtype=tf.float32)
+        act_ph = tf.placeholder(shape=(None,), dtype=tf.int32)
+        action_masks = tf.one_hot(act_ph, act_size)
+        log_probs = tf.reduce_sum(action_masks * tf.nn.log_softmax(logits), axis=1)
+        loss = -tf.reduce_mean(weights_ph * log_probs)
+
+        # Make the train op
+        train_op = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
+
+        saver = tf.train.Saver()
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+
+        # Training Loop Parameters
+        ckpt_interval = 5
+        save_path = './ckpt_path/'
+        restore = False
+        ckpt_num = 45
+
+        # Training loop
+        if restore and ckpt_num != None:
+            saver.restore(sess, save_path + 'spg_ckpt{}.ckpt'.format(ckpt_num))
+            print ('[INFO]Model Restored!!')
+
+        for epoch in range(epochs):
+            batch_loss, batch_rets, batch_lens = train_one_epoch(sess)
+            print ('Epoch: {:.3f} Loss: {:.3f} Return: {:.3f} ep_len: {:.3f}'
+                   .format(epoch+1, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
+
+            if (epoch+1) % ckpt_interval == 0:
+                print ('[INFO]Saving Checkpoint...')
+                curr_save_path = saver.save(sess, save_path + 'spg_ckpt{}.ckpt'.format(epoch+1))
+                print ('[INFO]Session saved Successfully!!')
+                print ('[INFO]Checkpoint saved at: {}'.format(curr_save_path))
+                print ('*************************************************')
+
+        sess.close()
+        pass
