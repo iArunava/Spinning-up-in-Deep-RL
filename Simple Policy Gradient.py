@@ -6,13 +6,11 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 
-from tensorflow.python.framework import graph_util
-from tensorflow.python.platform import gfile
 from gym.spaces import Discrete, Box
 from tf_utils import *
 
-const E = 'ERROR'
-const I = 'INFO'
+E = '[ERROR]'
+I = '[INFO]'
 
 def train_one_epoch(sess):
     # Declaring variables to store epoch details
@@ -69,11 +67,6 @@ def train_one_epoch(sess):
     return batch_loss, batch_rews, batch_len
 
 
-# save the weights and graph
-if True:
-    print ('[INFO]Saving the graph and weights...')
-    save_graph(sess, tf.get_default_graph(), env_name + '_graph.pb')
-    print ('[INFO]Saved Successfully!!')
 
 if '__main__' == __name__:
     parser = argparse.ArgumentParser()
@@ -99,7 +92,15 @@ if '__main__' == __name__:
             default='output',
             help='The name of the output layer',)
 
-    parser.add_argument('')
+    parser.add_argument('-e', '--epochs',
+            type=int,
+            default=50,
+            help='The number of epochs')
+
+    parser.add_argument('-gp', '--graph-path',
+            type=str,
+            default='./graphs/',
+            help='Path where the .pb file is saved!')
 
     FLAGS, unparsed = parser.parse_known_args()
 
@@ -119,10 +120,9 @@ if '__main__' == __name__:
 
     if not FLAGS.train:
         if not os.path.exists(FLAGS.graph):
-            raise Exception('{}Path to the Graph file does not exists!'\
-                    .format(E))
+            raise Exception('{}Path to the Graph file does not exists!'.format(E))
 
-        graph = load_graph(model_file)
+        graph = load_graph(FLAGS.graph)
 
         # Test the network
         input_layer = 'import/' + FLAGS.input_layer
@@ -152,11 +152,15 @@ if '__main__' == __name__:
         # Network Hyperparameters
         layers = 2
         hneurons = [32, act_size]
-        epochs = 50
+        epochs = FLAGS.epochs
         batch_size = 5000
         lr = 1e-2
         hid_act = tf.tanh
         out_act = None
+
+        graph_path = FLAGS.graph_path
+        if graph_path[0] != '/':
+            graph_path += '/'
 
         # Build the network
         obs_ph = tf.placeholder(shape=(None, obs_size), dtype=tf.float32, name='input')
@@ -194,7 +198,7 @@ if '__main__' == __name__:
 
         for epoch in range(epochs):
             batch_loss, batch_rets, batch_lens = train_one_epoch(sess)
-            print ('Epoch: {:.3f} Loss: {:.3f} Return: {:.3f} ep_len: {:.3f}'
+            print ('[INFO]Epoch: {:.3f} Loss: {:.3f} Return: {:.3f} ep_len: {:.3f}'
                    .format(epoch+1, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
 
             if (epoch+1) % ckpt_interval == 0:
@@ -203,6 +207,12 @@ if '__main__' == __name__:
                 print ('[INFO]Session saved Successfully!!')
                 print ('[INFO]Checkpoint saved at: {}'.format(curr_save_path))
                 print ('*************************************************')
+
+        # save the weights and graph
+        if True:
+            print ('[INFO]Saving the graph and weights...')
+            save_graph(sess, tf.get_default_graph(), graph_path + env_name + '-graph.pb')
+            print ('[INFO]Saved Successfully!!')
 
         sess.close()
         pass

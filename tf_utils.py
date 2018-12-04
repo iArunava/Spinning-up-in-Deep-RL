@@ -2,6 +2,10 @@ import numpy as np
 import tensorflow as tf
 import gym
 
+from tensorflow.python.framework import graph_util
+from tensorflow.python.platform import gfile
+
+
 # Saving the weights along with the graph
 def save_graph(sess, graph, graph_name):
     output_graph_def = graph_util.convert_variables_to_constants(
@@ -25,5 +29,3 @@ def load_graph(model_file):
 
     print ('[INFO]Model Loaded Successfully!!')
     return graph
-
-def save_ckpt(ckpt_name):
